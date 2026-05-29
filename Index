@@ -1,0 +1,232 @@
+index.html
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#4ade80">
+<link rel="manifest" href="manifest.json">
+<title>Hour Tracker</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body.dark {
+  background:#111827;
+  color:white;
+}
+.hour-cell { min-height:65px; }
+.card { border-radius:20px; }
+</style>
+</head>
+
+<body class="bg-gray-100 transition-colors duration-300">
+
+<div class="max-w-5xl mx-auto p-4">
+
+<div class="flex justify-between items-center mb-4">
+<h1 class="text-2xl font-bold">Hour Tracker</h1>
+<button onclick="toggleDark()" class="bg-gray-200 px-3 py-1 rounded-full text-sm">
+🌙
+</button>
+</div>
+
+<div class="flex gap-2 mb-4">
+<input type="month" id="monthPicker" class="flex-1 border p-2 rounded-lg shadow">
+<button onclick="clearMonth()" class="bg-red-500 text-white px-3 rounded-lg">
+Clear
+</button>
+</div>
+
+<div id="calendar" class="grid grid-cols-7 gap-2"></div>
+
+<div class="mt-6 card bg-white dark:bg-gray-800 p-4 shadow-lg">
+<h2 class="font-bold mb-3">Monthly Summary</h2>
+<canvas id="chart"></canvas>
+</div>
+
+<div class="mt-6 flex gap-2">
+<button onclick="exportData()" class="flex-1 bg-blue-500 text-white p-2 rounded-lg">
+Export Backup
+</button>
+<input type="file" id="importFile" hidden>
+<button onclick="document.getElementById('importFile').click()" class="flex-1 bg-green-500 text-white p-2 rounded-lg">
+Import Backup
+</button>
+</div>
+
+</div>
+
+<script>
+/* -------------------- DATA -------------------- */
+let data = JSON.parse(localStorage.getItem("trackerData") || "{}");
+function save(){ localStorage.setItem("trackerData",JSON.stringify(data)); }
+
+const statuses = [
+{emoji:"✅",color:"#4ade80"},
+{emoji:"🚫",color:"#9ca3af"},
+{emoji:"🤒",color:"#fde047"},
+{emoji:"⚔️",color:"#f87171"},
+{emoji:"😴",color:"#818cf8"},
+{emoji:"🔥",color:"#c084fc"}
+];
+
+const monthPicker=document.getElementById("monthPicker");
+const calendar=document.getElementById("calendar");
+monthPicker.value=new Date().toISOString().slice(0,7);
+
+/* -------------------- DARK MODE -------------------- */
+function toggleDark(){
+document.body.classList.toggle("dark");
+}
+
+/* -------------------- CALENDAR -------------------- */
+function render(){
+calendar.innerHTML="";
+const [y,m]=monthPicker.value.split("-");
+const days=new Date(y,m,0).getDate();
+const first=new Date(y,m-1,1).getDay();
+
+const weekdays=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+weekdays.forEach(d=>{
+let div=document.createElement("div");
+div.className="text-center font-bold";
+div.textContent=d;
+calendar.appendChild(div);
+});
+
+for(let i=0;i<first;i++) calendar.appendChild(document.createElement("div"));
+
+for(let d=1;d<=days;d++){
+let date=`${y}-${m}-${String(d).padStart(2,"0")}`;
+let btn=document.createElement("button");
+btn.className="bg-white dark:bg-gray-700 p-3 rounded-xl shadow text-left min-h-[80px]";
+btn.innerHTML=`<div class="font-bold">${d}</div>`;
+btn.onclick=()=>openDay(date);
+calendar.appendChild(btn);
+}
+updateChart();
+}
+monthPicker.onchange=render;
+
+/* -------------------- DAY VIEW + SWIPE -------------------- */
+let currentDate=null;
+
+function openDay(date){
+currentDate=date;
+calendar.innerHTML="";
+
+for(let h=0;h<24;h++){
+let key=`${date}-${h}`;
+let status=data[key]??-1;
+let div=document.createElement("div");
+updateCell(div,h,status);
+
+div.onclick=()=>{
+let next=(data[key]??-1)+1;
+if(next>=statuses.length) next=-1;
+if(next===-1) delete data[key]; else data[key]=next;
+updateCell(div,h,next);
+save();
+updateChart();
+};
+calendar.appendChild(div);
+}
+
+let back=document.createElement("button");
+back.textContent="⬅ Back";
+back.className="col-span-7 bg-blue-500 text-white p-3 rounded-xl mt-3";
+back.onclick=render;
+calendar.appendChild(back);
+
+/* Swipe Support */
+let startX=null;
+calendar.ontouchstart=e=>startX=e.touches[0].clientX;
+calendar.ontouchend=e=>{
+let endX=e.changedTouches[0].clientX;
+if(startX-endX>50) changeDay(1);
+if(endX-startX>50) changeDay(-1);
+};
+}
+
+function changeDay(offset){
+let d=new Date(currentDate);
+d.setDate(d.getDate()+offset);
+let y=d.getFullYear();
+let m=String(d.getMonth()+1).padStart(2,"0");
+let day=String(d.getDate()).padStart(2,"0");
+openDay(`${y}-${m}-${day}`);
+}
+
+/* -------------------- 12 HR FORMAT -------------------- */
+function updateCell(div,h,status){
+let hr=h%12===0?12:h%12;
+let ampm=h<12?"AM":"PM";
+let label=`${hr}:00 ${ampm}`;
+
+div.className="hour-cell bg-gray-200 dark:bg-gray-600 p-3 rounded-xl flex justify-between items-center";
+
+if(status>=0){
+div.style.background=statuses[status].color;
+div.innerHTML=`<span>${label}</span><span>${statuses[status].emoji}</span>`;
+}else{
+div.innerHTML=`${label}`;
+}
+}
+
+/* -------------------- CHART -------------------- */
+let chart=new Chart(document.getElementById("chart"),{
+type:"pie",
+data:{labels:["Ideal","Not With","Sick","Fighting","Sleeping","High"],
+datasets:[{data:[0,0,0,0,0,0],
+backgroundColor:statuses.map(s=>s.color)}]}
+});
+
+function updateChart(){
+let counts=[0,0,0,0,0,0];
+Object.values(data).forEach(v=>counts[v]++);
+chart.data.datasets[0].data=counts;
+chart.update();
+}
+
+/* -------------------- CLEAR MONTH -------------------- */
+function clearMonth(){
+if(!confirm("Clear this month?")) return;
+const [y,m]=monthPicker.value.split("-");
+Object.keys(data).forEach(k=>{
+if(k.startsWith(`${y}-${m}`)) delete data[k];
+});
+save();
+render();
+}
+
+/* -------------------- EXPORT / IMPORT -------------------- */
+function exportData(){
+let blob=new Blob([JSON.stringify(data)],{type:"application/json"});
+let a=document.createElement("a");
+a.href=URL.createObjectURL(blob);
+a.download="backup.json";
+a.click();
+}
+
+document.getElementById("importFile").onchange=function(e){
+let reader=new FileReader();
+reader.onload=function(){
+data=JSON.parse(reader.result);
+save();
+render();
+};
+reader.readAsText(e.target.files[0]);
+};
+
+render();
+
+/* -------------------- SERVICE WORKER -------------------- */
+if("serviceWorker" in navigator){
+navigator.serviceWorker.register("service-worker.js");
+}
+</script>
+
+</body>
+</html>
